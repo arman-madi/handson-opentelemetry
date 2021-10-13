@@ -1,0 +1,35 @@
+version: "3.9"  # optional since v1.27.0
+services:
+
+  zipkin-collector:
+    image: openzipkin/zipkin-slim:latest
+    ports:
+      - "9411:9411"
+
+  back-end:
+    build: 
+      dockerfile: ./Dockerfile
+      context: ./back-end 
+    ports:
+      - "8080:80"
+    # command:
+    #   - "/bin/sh"
+    #   - "-c"
+    #   - "while ! nc -w 1 -z zipkin-collector 9411; do echo sleep for 1s waiting for zipkin-collector to become available; sleep 1; done && /go/bin/main"
+    depends_on:
+      - zipkin-collector
+
+  payment-gateway:
+    build: 
+      dockerfile: ./Dockerfile
+      context: ./payment-gateway 
+    depends_on:
+      - zipkin-collector
+
+  simulator:
+    build: 
+      dockerfile: ./Dockerfile
+      context: ./simulator 
+    depends_on:
+      - zipkin-collector
+      - back-end

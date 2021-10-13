@@ -1,0 +1,14 @@
+#!/bin/sh
+
+set -e
+
+while [ 1 = 1 ]
+do
+
+echo "sleep for 1s waiting for zipkin-collector to become available"
+sleep 1;
+curl -s -X POST "http://back-end/checkout" -d@- <<EOF
+    {"name":"Arman", "address":"24 Ferdowsi St, TEHRAN 9812", "shipping":"TOLL", "payment":"PayPal", "basket":["iPhone 13 pro"]}
+EOF
+
+done

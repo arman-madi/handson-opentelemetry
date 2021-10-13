@@ -1,0 +1,4 @@
+#!/bin/bash
+
+
+curl -X POST http://127.0.0.1:8080/checkout -H 'Content-Type: application/json' -d '{"name":"Arman", "address":"24 Ferdowsi St, TEHRAN 9812", "shipping":"TOLL", "payment":"PayPal", "basket":["iPhone 13 pro"]}'
