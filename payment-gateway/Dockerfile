@@ -1,7 +1,7 @@
-FROM hub.artifactory.gcp.anz/golang:1.16.4
-# FROM golang:1.16.4
+# FROM hub.artifactory.gcp.anz/golang:1.16.4
+FROM golang:1.16.4
 
-ENV GOPROXY https://artifactory.gcp.anz/artifactory/go
+# ENV GOPROXY https://artifactory.gcp.anz/artifactory/go
 
 WORKDIR /src
 COPY . .

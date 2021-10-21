@@ -1,14 +1,38 @@
-#!/bin/sh
+#!bash
 
 set -e
+
+function randomStr()
+{
+    tr -dc 'A-Za-z0-9 ' </dev/urandom | head -c 13 ; echo ''
+}
+
+
+SHIPPING[0]="TOLL"
+SHIPPING[1]="DHL"
+SHIPPING[2]="FedEx"
+PAYMENT[0]="PayPal"
+PAYMENT[1]="Credit"
 
 while [ 1 = 1 ]
 do
 
-echo "sleep for 1s waiting for zipkin-collector to become available"
+echo "sleep for 1s "
 sleep 1;
+name=$(randomStr)
+address=$(randomStr)
+r=$(($RANDOM % 3))
+rshipping=${SHIPPING[$r]}
+r=$(($RANDOM % 2))
+rpayment=${PAYMENT[$r]}
+basket=$(randomStr)
+basket="\"$basket\""
+rr=$(($RANDOM % 50))
+for i in `seq 0 $rr`; do  r=$(randomStr); basket="$basket, \"$r\""; done
+echo  "{name:\"$name\", address:\"$address\", shipping:\"$rshipping\", payment:\"$rpayment\", basket:[$basket]}"
 curl -s -X POST "http://back-end/checkout" -d@- <<EOF
-    {"name":"Arman", "address":"24 Ferdowsi St, TEHRAN 9812", "shipping":"TOLL", "payment":"PayPal", "basket":["iPhone 13 pro"]}
+    {"name":"$name", "address":"$address", "shipping":"$rshipping", "payment":"$rpayment", "basket":[$basket]}
 EOF
 
 done
+
