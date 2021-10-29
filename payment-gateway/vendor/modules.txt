@@ -2,6 +2,9 @@
 github.com/felixge/httpsnoop
 # github.com/openzipkin/zipkin-go v0.2.5
 github.com/openzipkin/zipkin-go/model
+# go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace v0.25.0
+## explicit
+go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace
 # go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.25.0
 ## explicit
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp

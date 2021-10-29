@@ -46,6 +46,32 @@ services:
       - jaeger-tracing
       - zipkin-collector
 
+  paypal:
+    build: 
+      dockerfile: ./Dockerfile
+      context: ./paypal
+    depends_on:
+      - payment-gateway
+      - jaeger-tracing
+      - zipkin-collector
+
+  credit:
+    build: 
+      dockerfile: ./Dockerfile
+      context: ./credit
+    depends_on:
+      - payment-gateway
+      - jaeger-tracing
+      - zipkin-collector
+
+  shipping-gateway:
+    build: 
+      dockerfile: ./Dockerfile
+      context: ./shipping-gateway 
+    depends_on:
+      - jaeger-tracing
+      - zipkin-collector
+
   simulator:
     build: 
       dockerfile: ./Dockerfile

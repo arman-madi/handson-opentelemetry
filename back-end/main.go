@@ -7,18 +7,19 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"time"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/baggage"
+	// "go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/exporters/zipkin"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
@@ -81,7 +82,7 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 		sdktrace.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
 			semconv.ServiceNameKey.String("back-end"),
-			attribute.String("environment", "production"),
+			attribute.String("environment", "demo"),
 			attribute.Int64("ID", 1),
 		)),
 	)
@@ -98,47 +99,25 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 	return func() {
 		_ = tp.Shutdown(context.Background())
 	}
-
-	// return tp, nil
 }
 
 func main() {
-	// time.Sleep(time.Second * (30))
-	logger.Println("Hello Shoppers!")
+	logger.Println("Hello, this is back-end service which is first service to handle the user requests in order to demonestrate how OpenTelemetry works!")
 
 	shutdown := initTracer()
 	defer shutdown()
 
-	// tp, err := initTracer()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-
-	// // Register our TracerProvider as the global so any imported
-	// // instrumentation in the future will default to using it.
-	// otel.SetTracerProvider(tp)
-
-	// ctx, cancel := context.WithCancel(context.Background())
-	// defer cancel()
-
-	// // Cleanly shutdown and flush telemetry when the application exits.
-	// defer func(ctx context.Context) {
-	// 	// Do not make the application hang when it is shutdown.
-	// 	ctx, cancel = context.WithTimeout(ctx, time.Second*5)
-	// 	defer cancel()
-	// 	if err := tp.Shutdown(ctx); err != nil {
-	// 		log.Fatal(err)
-	// 	}
-	// }(ctx)
-
-	tracer = otel.Tracer("handson-opentelemetry/backend")
-
+	tracer = otel.Tracer("handson-opentelemetry/back-end")
 
 	checkoutHandler := func(w http.ResponseWriter, req *http.Request) {
 
 		ctx := req.Context()
+
+		// otelhttp already started a new span for handle function so you may need just get the span and add some events as needed
 		span := trace.SpanFromContext(ctx)
+		traceId := span.SpanContext().TraceID().String()
+		logger.Printf("Handle request with trace id: %+v\n", traceId)
+
 		// bag := baggage.FromContext(ctx)
 		// ctx, span := tracer.Start(ctx, "checkout-handler")
 		// defer span.End()	
@@ -153,11 +132,17 @@ func main() {
 		logger.Printf("New Checkout received: %+v\n", order)
 
 		payment(ctx, order)
-		shipping(ctx, order.Shipping)
-		invoice(ctx, order.Basket, order.Payment)
 
-		_, _ = io.WriteString(w, "Goodbye Customer!\n")
+		// ** Parallel operations
+		ch1 := shipping(ctx, order)
+		ch2 := invoice(ctx, order.Basket, order.Payment)
+		<-ch1
+		<-ch2 
+		// ***********************
+
+		_, _ = io.WriteString(w, fmt.Sprintf("{\"trace-id\": \"%v\"}\n", traceId))
 	}
+
 
 	otelHandler := otelhttp.NewHandler(http.HandlerFunc(checkoutHandler), "handle-checkout")
 
@@ -174,13 +159,13 @@ func payment(ctx context.Context, order Order) {
 
 	// we're ignoring errors here since we know these values are valid,
 	// but do handle them appropriately if dealing with user-input
-	foo, _ := baggage.NewMember("ex.com.foo", "foo1")
-	bar, _ := baggage.NewMember("ex.com.bar", "bar1")
-	bag, _ := baggage.New(foo, bar)
-	ctx = baggage.ContextWithBaggage(ctx, bag)
+	// foo, _ := baggage.NewMember("ex.com.foo", "foo1")
+	// bar, _ := baggage.NewMember("ex.com.bar", "bar1")
+	// bag, _ := baggage.New(foo, bar)
+	// ctx = baggage.ContextWithBaggage(ctx, bag)
 
 
-	payload := fmt.Sprintf("{\"name\":\"%s\", \"amount\":%d, \"method\":\"%s\"}", order.Name, calcAmount(ctx, order.Basket), order.Payment)
+	payload := fmt.Sprintf("{\"name\":\"%s\", \"amount\":%d, \"method\":\"%s\"}", order.Name, 12/*calcAmount(ctx, order.Basket)*/, order.Payment)
 	req, _ := http.NewRequestWithContext(ctx, "POST", "http://payment-gateway/", bytes.NewBuffer([]byte(payload)))
 
 	res, err := httpClient.Do(req)
@@ -201,26 +186,57 @@ func payment(ctx context.Context, order Order) {
 	}
 }
 
-func shipping(ctx context.Context, shipping string) {
+func shipping(ctx context.Context, order Order) <-chan bool {
+	r := make(chan bool)
 
-	_, span := tracer.Start(ctx, "shipping-request")
-	defer span.End()
+	go func() {
+		httpClient := &http.Client{
+			Transport: otelhttp.NewTransport(http.DefaultTransport),
+		}
+		payload := fmt.Sprintf("{\"address\":\"%s\", \"vendor\":\"%s\"}", order.Address, order.Shipping)
+		req, _ := http.NewRequestWithContext(ctx, "POST", "http://shipping-gateway/", bytes.NewBuffer([]byte(payload)))
 
+		res, err := httpClient.Do(req)
+		
+		span := trace.SpanFromContext(ctx) 
 
-	<-time.After(33 * time.Millisecond)
-	logger.Printf("Shipping is %s\n", shipping)
-	span.AddEvent("Successfully shipping handeled")
+		if err != nil {
+			span.AddEvent("Error sending request", trace.WithAttributes(attribute.Key("err").String(err.Error())))
+			r <- false
+		} else {
+
+			defer res.Body.Close()
+			
+			if res.StatusCode == 200 {
+				span.AddEvent("Successfully shipping handeled")
+			} else {
+				span.AddEvent("Error Shipping Gateway", trace.WithAttributes(attribute.Key("status").Int(res.StatusCode)))
+			}
+
+			r <- true
+		}
+	}()
+
+	return r
 }
 
-func invoice(ctx context.Context, basket []string, payment string) {
+func invoice(ctx context.Context, basket []string, payment string) <-chan bool {
+	r := make(chan bool)
 
-	_, span := tracer.Start(ctx, "invoice-request")
-	defer span.End()
+	go func() {
+		_, span := tracer.Start(ctx, "generating-invoice")
+		defer span.End()
 
+		span.AddEvent("Start generating invoice")
 
-	<-time.After(6 * time.Millisecond)
-	logger.Printf("Basket is %v\n", basket)
-	span.AddEvent("Successfully invoice handeled")
+		<-time.After(60 * time.Millisecond)
+		logger.Printf("Basket is %v\n", basket)
+		
+		span.AddEvent("Successfully invoice generated")
+		r <- true
+	}()
+
+	return r
 }
 
 func calcAmount(ctx context.Context, basket []string) int{
@@ -235,8 +251,15 @@ func calcAmount(ctx context.Context, basket []string) int{
    // in other functions simply by passing the context.
    //    span := trace.SpanFromContext(ctx)
 
-	<-time.After(6 * time.Millisecond)
-	logger.Printf("Basket is %v\n", basket)
-	span.AddEvent("Successfully calc handeled")
-	return len(basket) * 10
+   span.AddEvent("Start calculating total price")
+
+   <-time.After(6 * time.Millisecond)
+   total := len(basket) * rand.Intn(500)
+   logger.Printf("Total price is %v\n", total)
+
+   span.SetAttributes(attribute.Int("total-price", total))
+   span.AddEvent("Successfully total price calculated")
+   
+   
+   return total
 }
