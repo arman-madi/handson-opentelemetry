@@ -9,7 +9,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -26,6 +28,7 @@ import (
 type Shipping struct {
 	Address string `json:"address"`
 	Vendor string `json:"vendor"`
+	Basket []string `json:"basket"`
 }
 
 
@@ -101,9 +104,6 @@ func main() {
 	shutdown := initTracer()
 	defer shutdown()
 
-	tracer = otel.Tracer("handson-opentelemetry/shipping-gateway")
-
-
 	shippingHandler := func(w http.ResponseWriter, req *http.Request) {
 
 		ctx := req.Context()
@@ -133,15 +133,21 @@ func main() {
 }
 
 func send(ctx context.Context, shipping Shipping) {	
+	client := http.DefaultClient
 
-	span := trace.SpanFromContext(ctx)
+	payload := fmt.Sprintf("{\"address\":\"%s\", \"basket\":[\"%s\"]}", shipping.Address, strings.Join(shipping.Basket, "\",\""))
+	req, _ := http.NewRequest("POST", fmt.Sprintf("http://%s/", shipping.Vendor), bytes.NewBuffer([]byte(payload)))
 
-	client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	payload := fmt.Sprintf("{\"address\":\"%s\"}", shipping.Address)
-	req, _ := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("http://%s/", shipping.Vendor), bytes.NewBuffer([]byte(payload)))
+	// _, req = otelhttptrace.W3C(ctx, req)
+	otelhttptrace.Inject(ctx, req, 
+		// It seems otelhttptrace.W3C didn't consider global propagator, so you must explecitly inject
+		otelhttptrace.WithPropagators(propagation.TraceContext{}),
+	)
 
 	logger.Printf("Sending request to %s ...\n", shipping.Vendor)
 	res, err := client.Do(req)
+
+	span := trace.SpanFromContext(ctx)
 	if err != nil {
 		span.AddEvent(fmt.Sprintf("Error sending %s request", shipping.Vendor), trace.WithAttributes(attribute.Key("err").String(err.Error())))
 		return 
@@ -153,4 +159,27 @@ func send(ctx context.Context, shipping Shipping) {
 		span.AddEvent(fmt.Sprintf("Error shipping with %s", shipping.Vendor), trace.WithAttributes(attribute.Key("status").Int(res.StatusCode)))
 	}
 }
+
+// Using otelHttp in the below didn't propagate the right parent-id, so I used the above implementation!.
+// func send(ctx context.Context, shipping Shipping) {	
+
+// 	span := trace.SpanFromContext(ctx)
+
+// 	client := &http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+// 	payload := fmt.Sprintf("{\"address\":\"%s\"}", shipping.Address)
+// 	req, _ := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("http://%s/", shipping.Vendor), bytes.NewBuffer([]byte(payload)))
+
+// 	logger.Printf("Sending request to %s ...\n", shipping.Vendor)
+// 	res, err := client.Do(req)
+// 	if err != nil {
+// 		span.AddEvent(fmt.Sprintf("Error sending %s request", shipping.Vendor), trace.WithAttributes(attribute.Key("err").String(err.Error())))
+// 		return 
+// 	}
+
+// 	if res.StatusCode == 200 {
+// 		span.AddEvent("Successfully paid", trace.WithAttributes(attribute.Key("shipping-method").String(shipping.Vendor)))
+// 	} else {
+// 		span.AddEvent(fmt.Sprintf("Error shipping with %s", shipping.Vendor), trace.WithAttributes(attribute.Key("status").Int(res.StatusCode)))
+// 	}
+// }
 

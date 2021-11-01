@@ -72,6 +72,20 @@ services:
       - jaeger-tracing
       - zipkin-collector
 
+  toll:
+    build: ./toll
+    depends_on:
+      - shipment-gateway
+      - jaeger-tracing
+      - zipkin-collector
+
+  fedex:
+    build: ./fedex
+    depends_on:
+      - shipment-gateway
+      - jaeger-tracing
+      - zipkin-collector
+
   simulator:
     build: 
       dockerfile: ./Dockerfile

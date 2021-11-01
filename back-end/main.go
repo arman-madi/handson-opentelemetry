@@ -10,11 +10,13 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+
 	// "go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
@@ -107,8 +109,6 @@ func main() {
 	shutdown := initTracer()
 	defer shutdown()
 
-	tracer = otel.Tracer("handson-opentelemetry/back-end")
-
 	checkoutHandler := func(w http.ResponseWriter, req *http.Request) {
 
 		ctx := req.Context()
@@ -193,7 +193,7 @@ func shipping(ctx context.Context, order Order) <-chan bool {
 		httpClient := &http.Client{
 			Transport: otelhttp.NewTransport(http.DefaultTransport),
 		}
-		payload := fmt.Sprintf("{\"address\":\"%s\", \"vendor\":\"%s\"}", order.Address, order.Shipping)
+		payload := fmt.Sprintf("{\"address\":\"%s\", \"vendor\":\"%s\", \"basket\":[\"%s\"]}", order.Address, order.Shipping, strings.Join(order.Basket, "\",\""))
 		req, _ := http.NewRequestWithContext(ctx, "POST", "http://shipping-gateway/", bytes.NewBuffer([]byte(payload)))
 
 		res, err := httpClient.Do(req)

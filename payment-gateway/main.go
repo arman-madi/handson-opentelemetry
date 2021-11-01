@@ -83,16 +83,14 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 		)),
 	)
 
-	// otel.GetTextMapPropagator().Inject()
-	// otel.SetTextMapPropagator(otel.proNewCompositeTextMapPropagator(
-	// 	propagators.TraceContext{},
-	// 	propagators.Baggage{},
-	// 	))
-
 	// Register our TracerProvider as the global so any imported
 	// instrumentation in the future will default to using it.
 	otel.SetTracerProvider(tp)
 
+	// Register the TraceContext propagator globally.
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	// otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+	
 	// Name the tracer after the package, or the service if you are in main
 	tracer = otel.Tracer("handson-opentelemetry/payment-gateway")
 
@@ -104,15 +102,8 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 func main() {
 	logger.Println("Hello, this is payment-gateway service which is responsible to dispatch user payment requests in order to demonestrate how OpenTelemetry works!")
 
-	shutdown := initTracer()
-	defer shutdown()
-
-	tracer = otel.Tracer("handson-opentelemetry/payment-gateway")
-
-	tc := propagation.TraceContext{}
-	// Register the TraceContext propagator globally.
-	otel.SetTextMapPropagator(tc)
-
+	flush := initTracer()
+	defer flush()
 
 	paymentHandler := func(w http.ResponseWriter, req *http.Request) {
 
@@ -135,7 +126,7 @@ func main() {
 		_, _ = io.WriteString(w, fmt.Sprintf("{\"trace-id\": \"%v\"}\n", traceId))
 	}
 
-	otelHandler := otelhttp.NewHandler(http.HandlerFunc(paymentHandler), "handle-payment", otelhttp.WithPropagators(propagation.TraceContext{}))
+	otelHandler := otelhttp.NewHandler(http.HandlerFunc(paymentHandler), "handle-payment")
 
 	http.Handle("/", otelHandler)
 	logger.Printf("Listening on port 80\n")
@@ -143,48 +134,21 @@ func main() {
 }
 
 func send(ctx context.Context, payment Payment) {	
-	// httpClient := &http.Client{
-	// 	Transport: otelhttp.NewTransport(http.DefaultTransport),
-	// }
 	client := http.DefaultClient
 
-	// httpClient := &http.Client{
-	// 	Transport: otelhttp.NewTransport(http.DefaultTransport),
-	// }
-	// tracer := otel.Tracer("handson-opentelemetry/payment-gateway")
-	// _, span := tracer.Start(context.Background(), "makeRequest")
-	// defer span.End()
-
-	// payload := fmt.Sprintf("{\"name\":\"%s\", \"amount\":%d, \"method\":\"%s\"}", order.Name, calcAmount(ctx, order.Basket), order.Payment)
-	// req, _ := http.NewRequestWithContext(ctx, "POST", "http://payment-gateway/", bytes.NewBuffer([]byte(payload)))
-	// // req, _ := http.NewRequest("POST", "http://payment-gateway/", bytes.NewBuffer([]byte(payload)))
-
-	// res, err := httpClient.Do(req)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return
-	// }
-	// defer res.Body.Close()
-	// fmt.Printf("Request to %s, got %d bytes\n", "http://payment-gateway/", res.ContentLength)
-
-	span := trace.SpanFromContext(ctx)
-	// ctx2 := trace.ContextWithSpan(ctx, span)
-
 	payload := fmt.Sprintf("{\"name\":\"%s\", \"amount\":%d}", payment.Name, payment.Amount)
-	
-	// req, _ := http.NewRequestWithContext(ctx2, "POST", fmt.Sprintf("http://%s/", payment.Method), bytes.NewBuffer([]byte(payload)))
 	req, _ := http.NewRequest("POST", fmt.Sprintf("http://%s/", payment.Method), bytes.NewBuffer([]byte(payload)))
 
 	_, req = otelhttptrace.W3C(ctx, req)
-	otelhttptrace.Inject(ctx, req, otelhttptrace.WithPropagators(propagation.TraceContext{}))
+	otelhttptrace.Inject(ctx, req, 
+		// It seems otelhttptrace.W3C didn't consider global propagator, so you must explecitly inject
+		otelhttptrace.WithPropagators(propagation.TraceContext{}),
+	)
 	
-
 	logger.Printf("Sending request to %s with headers %+v ...\n", payment.Method, req.Header)
-	
 	res, err :=client.Do(req)
 
-	// res, err := httpClient.Do(req)
-
+	span := trace.SpanFromContext(ctx)
 	
 	if err != nil {
 		span.AddEvent(fmt.Sprintf("Error sending %s request", payment.Method), trace.WithAttributes(attribute.Key("err").String(err.Error())))

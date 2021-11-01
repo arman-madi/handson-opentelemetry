@@ -11,6 +11,7 @@ import (
 	"os"
 	"time"
 
+	// "go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -82,8 +83,6 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 		)),
 	)
 
-	otel.SetTextMapPropagator(propagation.TraceContext{})
-
 	// Register our TracerProvider as the global so any imported
 	// instrumentation in the future will default to using it.
 	otel.SetTracerProvider(tp)
@@ -104,8 +103,12 @@ func main() {
 
 	tracer = otel.Tracer("handson-opentelemetry/paypal")
 
+	// Register the TraceContext propagator globally.
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
 
 	paypalHandler := func(w http.ResponseWriter, req *http.Request) {
+		// _, _, spanCtx := otelhttptrace.Extract(req.Context(), req)
 
 		ctx := req.Context()
 		span := trace.SpanFromContext(ctx)
@@ -126,7 +129,7 @@ func main() {
 		_, _ = io.WriteString(w, fmt.Sprintf("{\"trace-id\": \"%v\"}\n", traceId))
 	}
 
-	otelHandler := otelhttp.NewHandler(http.HandlerFunc(paypalHandler), "handle-paypal")
+	otelHandler := otelhttp.NewHandler(http.HandlerFunc(paypalHandler), "handle-paypal", otelhttp.WithPropagators(propagation.TraceContext{}))
 
 	http.Handle("/", otelHandler)
 	logger.Printf("Listening on port 80\n")
