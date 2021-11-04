@@ -25,10 +25,9 @@ import (
 )
 
 type credit struct {
-	Name string `json:"name"`
-	Amount int `json:"amount"`
+	Name   string `json:"name"`
+	Amount int    `json:"amount"`
 }
-
 
 var logger = log.New(os.Stderr, "[credit] ", log.Ldate|log.Ltime|log.Llongfile)
 
@@ -36,18 +35,17 @@ var logger = log.New(os.Stderr, "[credit] ", log.Ldate|log.Ltime|log.Llongfile)
 // NOTE: You only need a tracer if you are creating your own spans
 var tracer trace.Tracer
 
-
 // initTracer creates a new trace provider instance and registers it as global trace provider.
-func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
+func initTracer() /*(*sdktrace.TracerProvider, error)*/ func() {
 
 	// ** STDOUT Exporter
-	stdoutExporter, err := stdouttrace.New(/*stdouttrace.WithPrettyPrint()*/)
+	stdoutExporter, err := stdouttrace.New( /*stdouttrace.WithPrettyPrint()*/ )
 	if err != nil {
 		log.Fatal("failed to initialize stdouttrace exporter: ", err)
 	}
 
 	// ** Jaeger Exporter
-	jaegerUrl := "http://jaeger-tracing:14268/api/traces"
+	jaegerUrl := "http://jaeger:14268/api/traces"
 	jaegerExporter, err := jaeger.New(
 		jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(jaegerUrl)),
 	)
@@ -55,8 +53,8 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 		log.Fatal("failed to initialize jaeger exporter: ", err)
 	}
 
-	// ** Zipkin Exporter 
-	zipkinUrl := "http://zipkin-collector:9411/api/v2/spans"
+	// ** Zipkin Exporter
+	zipkinUrl := "http://zipkin:9411/api/v2/spans"
 	zipkinExporter, err := zipkin.New(
 		zipkinUrl,
 		// zipkin.WithLogger(logger),
@@ -104,7 +102,6 @@ func main() {
 
 	tracer = otel.Tracer("handson-opentelemetry/credit")
 
-
 	creditHandler := func(w http.ResponseWriter, req *http.Request) {
 
 		ctx := req.Context()
@@ -133,16 +130,15 @@ func main() {
 	http.ListenAndServe(":80", nil)
 }
 
-func pay(ctx context.Context, credit credit) {	
+func pay(ctx context.Context, credit credit) {
 	ctx, span := tracer.Start(ctx, "credit-pay")
 	defer span.End()
-  
+
 	span.AddEvent("Start paying with credit")
- 
+
 	<-time.After(time.Second * time.Duration(rand.Intn(3)))
-	
+
 	span.SetAttributes(attribute.Int("amount", credit.Amount))
 	span.AddEvent("Successfully paied with credit")
-	
-}
 
+}

@@ -26,10 +26,9 @@ import (
 )
 
 type Fedex struct {
-	Address string `json:"address"`
-	Basket []string `json:"basket"`
+	Address string   `json:"address"`
+	Basket  []string `json:"basket"`
 }
-
 
 var logger = log.New(os.Stderr, "[fedex] ", log.Ldate|log.Ltime|log.Llongfile)
 
@@ -37,18 +36,17 @@ var logger = log.New(os.Stderr, "[fedex] ", log.Ldate|log.Ltime|log.Llongfile)
 // NOTE: You only need a tracer if you are creating your own spans
 var tracer trace.Tracer
 
-
 // initTracer creates a new trace provider instance and registers it as global trace provider.
-func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
+func initTracer() /*(*sdktrace.TracerProvider, error)*/ func() {
 
 	// ** STDOUT Exporter
-	stdoutExporter, err := stdouttrace.New(/*stdouttrace.WithPrettyPrint()*/)
+	stdoutExporter, err := stdouttrace.New( /*stdouttrace.WithPrettyPrint()*/ )
 	if err != nil {
 		log.Fatal("failed to initialize stdouttrace exporter: ", err)
 	}
 
 	// ** Jaeger Exporter
-	jaegerUrl := "http://jaeger-tracing:14268/api/traces"
+	jaegerUrl := "http://jaeger:14268/api/traces"
 	jaegerExporter, err := jaeger.New(
 		jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(jaegerUrl)),
 	)
@@ -56,8 +54,8 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 		log.Fatal("failed to initialize jaeger exporter: ", err)
 	}
 
-	// ** Zipkin Exporter 
-	zipkinUrl := "http://zipkin-collector:9411/api/v2/spans"
+	// ** Zipkin Exporter
+	zipkinUrl := "http://zipkin:9411/api/v2/spans"
 	zipkinExporter, err := zipkin.New(
 		zipkinUrl,
 		// zipkin.WithLogger(logger),
@@ -132,16 +130,15 @@ func main() {
 	http.ListenAndServe(":80", nil)
 }
 
-func ship(ctx context.Context, fedex Fedex) {	
+func ship(ctx context.Context, fedex Fedex) {
 	ctx, span := tracer.Start(ctx, "fedex-ship")
 	defer span.End()
-  
+
 	span.AddEvent("Start shipping with FedEx")
- 
+
 	<-time.After(time.Second * time.Duration(rand.Intn(3)))
-	
+
 	span.SetAttributes(attribute.StringSlice("Products", fedex.Basket))
 	span.AddEvent("Successfully shipped with FedEx")
-	
-}
 
+}

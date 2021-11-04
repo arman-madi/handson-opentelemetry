@@ -29,13 +29,12 @@ import (
 )
 
 type Order struct {
-	Name string `json:"name"`
-	Address string `json:"address"`
-	Payment string `json:"payment"`
-	Shipping string `json:"shipping"` 
-	Basket []string `json:"basket"`
+	Name     string   `json:"name"`
+	Address  string   `json:"address"`
+	Payment  string   `json:"payment"`
+	Shipping string   `json:"shipping"`
+	Basket   []string `json:"basket"`
 }
-
 
 var logger = log.New(os.Stderr, "[back-end] ", log.Ldate|log.Ltime|log.Llongfile)
 
@@ -43,18 +42,17 @@ var logger = log.New(os.Stderr, "[back-end] ", log.Ldate|log.Ltime|log.Llongfile
 // NOTE: You only need a tracer if you are creating your own spans
 var tracer trace.Tracer
 
-
 // initTracer creates a new trace provider instance and registers it as global trace provider.
-func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
+func initTracer() /*(*sdktrace.TracerProvider, error)*/ func() {
 
 	// ** STDOUT Exporter
-	stdoutExporter, err := stdouttrace.New(/*stdouttrace.WithPrettyPrint()*/)
+	stdoutExporter, err := stdouttrace.New( /*stdouttrace.WithPrettyPrint()*/ )
 	if err != nil {
 		log.Fatal("failed to initialize stdouttrace exporter: ", err)
 	}
 
 	// ** Jaeger Exporter
-	jaegerUrl := "http://jaeger-tracing:14268/api/traces"
+	jaegerUrl := "http://jaeger:14268/api/traces"
 	jaegerExporter, err := jaeger.New(
 		jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(jaegerUrl)),
 	)
@@ -62,8 +60,8 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 		log.Fatal("failed to initialize jaeger exporter: ", err)
 	}
 
-	// ** Zipkin Exporter 
-	zipkinUrl := "http://zipkin-collector:9411/api/v2/spans"
+	// ** Zipkin Exporter
+	zipkinUrl := "http://zipkin:9411/api/v2/spans"
 	zipkinExporter, err := zipkin.New(
 		zipkinUrl,
 		// zipkin.WithLogger(logger),
@@ -120,7 +118,7 @@ func main() {
 
 		// bag := baggage.FromContext(ctx)
 		// ctx, span := tracer.Start(ctx, "checkout-handler")
-		// defer span.End()	
+		// defer span.End()
 
 		var order Order
 		err := json.NewDecoder(req.Body).Decode(&order)
@@ -137,12 +135,11 @@ func main() {
 		ch1 := shipping(ctx, order)
 		ch2 := invoice(ctx, order.Basket, order.Payment)
 		<-ch1
-		<-ch2 
+		<-ch2
 		// ***********************
 
 		_, _ = io.WriteString(w, fmt.Sprintf("{\"trace-id\": \"%v\"}\n", traceId))
 	}
-
 
 	otelHandler := otelhttp.NewHandler(http.HandlerFunc(checkoutHandler), "handle-checkout")
 
@@ -151,11 +148,10 @@ func main() {
 	http.ListenAndServe(":80", nil)
 }
 
-func payment(ctx context.Context, order Order) {	
+func payment(ctx context.Context, order Order) {
 	httpClient := &http.Client{
 		Transport: otelhttp.NewTransport(http.DefaultTransport),
 	}
-
 
 	// we're ignoring errors here since we know these values are valid,
 	// but do handle them appropriately if dealing with user-input
@@ -164,21 +160,20 @@ func payment(ctx context.Context, order Order) {
 	// bag, _ := baggage.New(foo, bar)
 	// ctx = baggage.ContextWithBaggage(ctx, bag)
 
-
-	payload := fmt.Sprintf("{\"name\":\"%s\", \"amount\":%d, \"method\":\"%s\"}", order.Name, 12/*calcAmount(ctx, order.Basket)*/, order.Payment)
+	payload := fmt.Sprintf("{\"name\":\"%s\", \"amount\":%d, \"method\":\"%s\"}", order.Name, 12 /*calcAmount(ctx, order.Basket)*/, order.Payment)
 	req, _ := http.NewRequestWithContext(ctx, "POST", "http://payment-gateway/", bytes.NewBuffer([]byte(payload)))
 
 	res, err := httpClient.Do(req)
-	
-	span := trace.SpanFromContext(ctx) 
+
+	span := trace.SpanFromContext(ctx)
 
 	if err != nil {
 		span.AddEvent("Error sending request", trace.WithAttributes(attribute.Key("err").String(err.Error())))
-		return 
+		return
 	}
 
 	defer res.Body.Close()
-	
+
 	if res.StatusCode == 200 {
 		span.AddEvent("Successfully payment handeled")
 	} else {
@@ -197,8 +192,8 @@ func shipping(ctx context.Context, order Order) <-chan bool {
 		req, _ := http.NewRequestWithContext(ctx, "POST", "http://shipping-gateway/", bytes.NewBuffer([]byte(payload)))
 
 		res, err := httpClient.Do(req)
-		
-		span := trace.SpanFromContext(ctx) 
+
+		span := trace.SpanFromContext(ctx)
 
 		if err != nil {
 			span.AddEvent("Error sending request", trace.WithAttributes(attribute.Key("err").String(err.Error())))
@@ -206,7 +201,7 @@ func shipping(ctx context.Context, order Order) <-chan bool {
 		} else {
 
 			defer res.Body.Close()
-			
+
 			if res.StatusCode == 200 {
 				span.AddEvent("Successfully shipping handeled")
 			} else {
@@ -231,7 +226,7 @@ func invoice(ctx context.Context, basket []string, payment string) <-chan bool {
 
 		<-time.After(60 * time.Millisecond)
 		logger.Printf("Basket is %v\n", basket)
-		
+
 		span.AddEvent("Successfully invoice generated")
 		r <- true
 	}()
@@ -239,27 +234,26 @@ func invoice(ctx context.Context, basket []string, payment string) <-chan bool {
 	return r
 }
 
-func calcAmount(ctx context.Context, basket []string) int{
-   // You can create child spans from the span in the current context.
-   // The returned context contains the new child span
-   ctx, span := tracer.Start(ctx, "calculate-price")
-   // Always end the span when the operation completes,
-   // otherwise you will have a leak.
-   defer span.End()
+func calcAmount(ctx context.Context, basket []string) int {
+	// You can create child spans from the span in the current context.
+	// The returned context contains the new child span
+	ctx, span := tracer.Start(ctx, "calculate-price")
+	// Always end the span when the operation completes,
+	// otherwise you will have a leak.
+	defer span.End()
 
-   // The new context now contains the child span, so it can be accessed
-   // in other functions simply by passing the context.
-   //    span := trace.SpanFromContext(ctx)
+	// The new context now contains the child span, so it can be accessed
+	// in other functions simply by passing the context.
+	//    span := trace.SpanFromContext(ctx)
 
-   span.AddEvent("Start calculating total price")
+	span.AddEvent("Start calculating total price")
 
-   <-time.After(6 * time.Millisecond)
-   total := len(basket) * rand.Intn(500)
-   logger.Printf("Total price is %v\n", total)
+	<-time.After(6 * time.Millisecond)
+	total := len(basket) * rand.Intn(500)
+	logger.Printf("Total price is %v\n", total)
 
-   span.SetAttributes(attribute.Int("total-price", total))
-   span.AddEvent("Successfully total price calculated")
-   
-   
-   return total
+	span.SetAttributes(attribute.Int("total-price", total))
+	span.AddEvent("Successfully total price calculated")
+
+	return total
 }

@@ -25,11 +25,10 @@ import (
 )
 
 type Payment struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
 	Method string `json:"method"`
-	Amount int `json:"amount"` 
+	Amount int    `json:"amount"`
 }
-
 
 var logger = log.New(os.Stderr, "[payment-gateway] ", log.Ldate|log.Ltime|log.Llongfile)
 
@@ -37,18 +36,17 @@ var logger = log.New(os.Stderr, "[payment-gateway] ", log.Ldate|log.Ltime|log.Ll
 // NOTE: You only need a tracer if you are creating your own spans
 var tracer trace.Tracer
 
-
 // initTracer creates a new trace provider instance and registers it as global trace provider.
-func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
+func initTracer() /*(*sdktrace.TracerProvider, error)*/ func() {
 
 	// ** STDOUT Exporter
-	stdoutExporter, err := stdouttrace.New(/*stdouttrace.WithPrettyPrint()*/)
+	stdoutExporter, err := stdouttrace.New( /*stdouttrace.WithPrettyPrint()*/ )
 	if err != nil {
 		log.Fatal("failed to initialize stdouttrace exporter: ", err)
 	}
 
 	// ** Jaeger Exporter
-	jaegerUrl := "http://jaeger-tracing:14268/api/traces"
+	jaegerUrl := "http://jaeger:14268/api/traces"
 	jaegerExporter, err := jaeger.New(
 		jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(jaegerUrl)),
 	)
@@ -56,8 +54,8 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 		log.Fatal("failed to initialize jaeger exporter: ", err)
 	}
 
-	// ** Zipkin Exporter 
-	zipkinUrl := "http://zipkin-collector:9411/api/v2/spans"
+	// ** Zipkin Exporter
+	zipkinUrl := "http://zipkin:9411/api/v2/spans"
 	zipkinExporter, err := zipkin.New(
 		zipkinUrl,
 		// zipkin.WithLogger(logger),
@@ -90,7 +88,7 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 	// Register the TraceContext propagator globally.
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 	// otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-	
+
 	// Name the tracer after the package, or the service if you are in main
 	tracer = otel.Tracer("handson-opentelemetry/payment-gateway")
 
@@ -133,26 +131,26 @@ func main() {
 	http.ListenAndServe(":80", nil)
 }
 
-func send(ctx context.Context, payment Payment) {	
+func send(ctx context.Context, payment Payment) {
 	client := http.DefaultClient
 
 	payload := fmt.Sprintf("{\"name\":\"%s\", \"amount\":%d}", payment.Name, payment.Amount)
 	req, _ := http.NewRequest("POST", fmt.Sprintf("http://%s/", payment.Method), bytes.NewBuffer([]byte(payload)))
 
 	_, req = otelhttptrace.W3C(ctx, req)
-	otelhttptrace.Inject(ctx, req, 
+	otelhttptrace.Inject(ctx, req,
 		// It seems otelhttptrace.W3C didn't consider global propagator, so you must explecitly inject
 		otelhttptrace.WithPropagators(propagation.TraceContext{}),
 	)
-	
+
 	logger.Printf("Sending request to %s with headers %+v ...\n", payment.Method, req.Header)
-	res, err :=client.Do(req)
+	res, err := client.Do(req)
 
 	span := trace.SpanFromContext(ctx)
-	
+
 	if err != nil {
 		span.AddEvent(fmt.Sprintf("Error sending %s request", payment.Method), trace.WithAttributes(attribute.Key("err").String(err.Error())))
-		return 
+		return
 	}
 
 	if res.StatusCode == 200 {
@@ -161,4 +159,3 @@ func send(ctx context.Context, payment Payment) {
 		span.AddEvent(fmt.Sprintf("Error paying with %s", payment.Method), trace.WithAttributes(attribute.Key("status").Int(res.StatusCode)))
 	}
 }
-

@@ -25,12 +25,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-type Toll struct {
+type Dhl struct {
 	Address string   `json:"address"`
 	Basket  []string `json:"basket"`
 }
 
-var logger = log.New(os.Stderr, "[toll] ", log.Ldate|log.Ltime|log.Llongfile)
+var logger = log.New(os.Stderr, "[dhl] ", log.Ldate|log.Ltime|log.Llongfile)
 
 // Create one tracer per package
 // NOTE: You only need a tracer if you are creating your own spans
@@ -75,7 +75,7 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/ func() {
 		sdktrace.WithBatcher(stdoutExporter, sdktrace.WithMaxExportBatchSize(1)),
 		sdktrace.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceNameKey.String("toll"),
+			semconv.ServiceNameKey.String("dhl"),
 			attribute.String("environment", "demo"),
 			attribute.Int64("ID", 4),
 		)),
@@ -86,7 +86,7 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/ func() {
 	otel.SetTracerProvider(tp)
 
 	// Name the tracer after the package, or the service if you are in main
-	tracer = otel.Tracer("handson-opentelemetry/toll")
+	tracer = otel.Tracer("handson-opentelemetry/dhl")
 
 	// Register the TraceContext propagator globally.
 	otel.SetTextMapPropagator(propagation.TraceContext{})
@@ -97,48 +97,48 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/ func() {
 }
 
 func main() {
-	logger.Println("Hello, this is toll service which is responsible to ship goods via TOLL in order to demonestrate how OpenTelemetry works!")
+	logger.Println("Hello, this is dhl service which is responsible to ship goods via DHL in order to demonestrate how OpenTelemetry works!")
 
 	shutdown := initTracer()
 	defer shutdown()
 
-	tollHandler := func(w http.ResponseWriter, req *http.Request) {
+	dhlHandler := func(w http.ResponseWriter, req *http.Request) {
 
 		ctx := req.Context()
 		span := trace.SpanFromContext(ctx)
 		traceId := span.SpanContext().TraceID().String()
 		logger.Printf("Handle request with trace id: %+v\n", traceId)
 
-		var toll Toll
-		err := json.NewDecoder(req.Body).Decode(&toll)
+		var dhl Dhl
+		err := json.NewDecoder(req.Body).Decode(&dhl)
 		if err != nil {
-			span.AddEvent("Error decoding toll json", trace.WithAttributes(attribute.Key("err").String(err.Error())))
+			span.AddEvent("Error decoding dhl json", trace.WithAttributes(attribute.Key("err").String(err.Error())))
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		logger.Printf("New request received: %+v\n", toll)
+		logger.Printf("New request received: %+v\n", dhl)
 
-		ship(ctx, toll)
+		ship(ctx, dhl)
 
 		_, _ = io.WriteString(w, fmt.Sprintf("{\"trace-id\": \"%v\"}\n", traceId))
 	}
 
-	otelHandler := otelhttp.NewHandler(http.HandlerFunc(tollHandler), "handle-toll")
+	otelHandler := otelhttp.NewHandler(http.HandlerFunc(dhlHandler), "handle-dhl")
 
 	http.Handle("/", otelHandler)
 	logger.Printf("Listening on port 80\n")
 	http.ListenAndServe(":80", nil)
 }
 
-func ship(ctx context.Context, toll Toll) {
-	ctx, span := tracer.Start(ctx, "toll-ship")
+func ship(ctx context.Context, dhl Dhl) {
+	ctx, span := tracer.Start(ctx, "dhl-ship")
 	defer span.End()
 
-	span.AddEvent("Start shipping with TOLL")
+	span.AddEvent("Start shipping with DHL")
 
 	<-time.After(time.Second * time.Duration(rand.Intn(3)))
 
-	span.SetAttributes(attribute.StringSlice("Products", toll.Basket))
-	span.AddEvent("Successfully shipped with TOLL")
+	span.SetAttributes(attribute.StringSlice("Products", dhl.Basket))
+	span.AddEvent("Successfully shipped with DHL")
 
 }

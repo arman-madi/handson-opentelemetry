@@ -26,11 +26,10 @@ import (
 )
 
 type Shipping struct {
-	Address string `json:"address"`
-	Vendor string `json:"vendor"`
-	Basket []string `json:"basket"`
+	Address string   `json:"address"`
+	Vendor  string   `json:"vendor"`
+	Basket  []string `json:"basket"`
 }
-
 
 var logger = log.New(os.Stderr, "[shipping-gateway] ", log.Ldate|log.Ltime|log.Llongfile)
 
@@ -38,18 +37,17 @@ var logger = log.New(os.Stderr, "[shipping-gateway] ", log.Ldate|log.Ltime|log.L
 // NOTE: You only need a tracer if you are creating your own spans
 var tracer trace.Tracer
 
-
 // initTracer creates a new trace provider instance and registers it as global trace provider.
-func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
+func initTracer() /*(*sdktrace.TracerProvider, error)*/ func() {
 
 	// ** STDOUT Exporter
-	stdoutExporter, err := stdouttrace.New(/*stdouttrace.WithPrettyPrint()*/)
+	stdoutExporter, err := stdouttrace.New( /*stdouttrace.WithPrettyPrint()*/ )
 	if err != nil {
 		log.Fatal("failed to initialize stdouttrace exporter: ", err)
 	}
 
 	// ** Jaeger Exporter
-	jaegerUrl := "http://jaeger-tracing:14268/api/traces"
+	jaegerUrl := "http://jaeger:14268/api/traces"
 	jaegerExporter, err := jaeger.New(
 		jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(jaegerUrl)),
 	)
@@ -57,8 +55,8 @@ func initTracer() /*(*sdktrace.TracerProvider, error)*/  func() {
 		log.Fatal("failed to initialize jaeger exporter: ", err)
 	}
 
-	// ** Zipkin Exporter 
-	zipkinUrl := "http://zipkin-collector:9411/api/v2/spans"
+	// ** Zipkin Exporter
+	zipkinUrl := "http://zipkin:9411/api/v2/spans"
 	zipkinExporter, err := zipkin.New(
 		zipkinUrl,
 		// zipkin.WithLogger(logger),
@@ -132,14 +130,14 @@ func main() {
 	http.ListenAndServe(":80", nil)
 }
 
-func send(ctx context.Context, shipping Shipping) {	
+func send(ctx context.Context, shipping Shipping) {
 	client := http.DefaultClient
 
 	payload := fmt.Sprintf("{\"address\":\"%s\", \"basket\":[\"%s\"]}", shipping.Address, strings.Join(shipping.Basket, "\",\""))
 	req, _ := http.NewRequest("POST", fmt.Sprintf("http://%s/", shipping.Vendor), bytes.NewBuffer([]byte(payload)))
 
 	// _, req = otelhttptrace.W3C(ctx, req)
-	otelhttptrace.Inject(ctx, req, 
+	otelhttptrace.Inject(ctx, req,
 		// It seems otelhttptrace.W3C didn't consider global propagator, so you must explecitly inject
 		otelhttptrace.WithPropagators(propagation.TraceContext{}),
 	)
@@ -150,7 +148,7 @@ func send(ctx context.Context, shipping Shipping) {
 	span := trace.SpanFromContext(ctx)
 	if err != nil {
 		span.AddEvent(fmt.Sprintf("Error sending %s request", shipping.Vendor), trace.WithAttributes(attribute.Key("err").String(err.Error())))
-		return 
+		return
 	}
 
 	if res.StatusCode == 200 {
@@ -161,7 +159,7 @@ func send(ctx context.Context, shipping Shipping) {
 }
 
 // Using otelHttp in the below didn't propagate the right parent-id, so I used the above implementation!.
-// func send(ctx context.Context, shipping Shipping) {	
+// func send(ctx context.Context, shipping Shipping) {
 
 // 	span := trace.SpanFromContext(ctx)
 
@@ -173,7 +171,7 @@ func send(ctx context.Context, shipping Shipping) {
 // 	res, err := client.Do(req)
 // 	if err != nil {
 // 		span.AddEvent(fmt.Sprintf("Error sending %s request", shipping.Vendor), trace.WithAttributes(attribute.Key("err").String(err.Error())))
-// 		return 
+// 		return
 // 	}
 
 // 	if res.StatusCode == 200 {
@@ -182,4 +180,3 @@ func send(ctx context.Context, shipping Shipping) {
 // 		span.AddEvent(fmt.Sprintf("Error shipping with %s", shipping.Vendor), trace.WithAttributes(attribute.Key("status").Int(res.StatusCode)))
 // 	}
 // }
-

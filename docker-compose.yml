@@ -1,28 +1,28 @@
-version: "3.9"  # optional since v1.27.0
+version: "3.9" 
 services:
 
-  jaeger-tracing:
+  jaeger:
     image: jaegertracing/all-in-one:1.9
-    container_name: jaeger-tracing
     ports:
-      - "5775:5775/udp"
-      - "5778:5778"
-      - "6831:6831/udp"
-      - "6832:6832/udp"
+      # - "5775:5775/udp"
+      # - "5778:5778"
+      # - "6831:6831/udp"
+      # - "6832:6832/udp"
       # - "9411:9411"
-      - "14268:14268"
+      # - "14268:14268"
       - "16686:16686"
 
-  # jaeger:
-  #   build: ./jaeger
-  #   depends_on:
-  #     - jaeger-tracing
-
-
-  zipkin-collector:
+  zipkin:
     image: openzipkin/zipkin-slim:latest
     ports:
       - "9411:9411"
+
+  # prometheus:
+  #   image: prom/prometheus:v2.31.0
+  #   volumes:
+  #     - ./prometheus.yaml:/etc/prometheus/prometheus.yml
+  #   ports:
+  #     - "9090:9090"            
 
   back-end:
     build: 
@@ -30,68 +30,64 @@ services:
       context: ./back-end 
     ports:
       - "8080:80"
-    # command:
-    #   - "/bin/sh"
-    #   - "-c"
-    #   - "while ! nc -w 1 -z zipkin-collector 9411; do echo sleep for 1s waiting for zipkin-collector to become available; sleep 1; done && /go/bin/main"
     depends_on:
-      - jaeger-tracing
-      - zipkin-collector
+      - jaeger
+      - zipkin
 
   payment-gateway:
     build: 
       dockerfile: ./Dockerfile
       context: ./payment-gateway 
     depends_on:
-      - jaeger-tracing
-      - zipkin-collector
+      - jaeger
+      - zipkin
 
   paypal:
     build: 
       dockerfile: ./Dockerfile
       context: ./paypal
     depends_on:
-      - payment-gateway
-      - jaeger-tracing
-      - zipkin-collector
+      - jaeger
+      - zipkin
 
   credit:
     build: 
       dockerfile: ./Dockerfile
       context: ./credit
     depends_on:
-      - payment-gateway
-      - jaeger-tracing
-      - zipkin-collector
+      - jaeger
+      - zipkin
 
   shipping-gateway:
     build: 
       dockerfile: ./Dockerfile
       context: ./shipping-gateway 
     depends_on:
-      - jaeger-tracing
-      - zipkin-collector
+      - jaeger
+      - zipkin
 
   toll:
     build: ./toll
     depends_on:
-      - shipment-gateway
-      - jaeger-tracing
-      - zipkin-collector
+      - jaeger
+      - zipkin
 
   fedex:
     build: ./fedex
     depends_on:
-      - shipment-gateway
-      - jaeger-tracing
-      - zipkin-collector
+      - jaeger
+      - zipkin
+
+  dhl:
+    build: ./dhl
+    depends_on:
+      - jaeger
+      - zipkin
 
   simulator:
     build: 
       dockerfile: ./Dockerfile
       context: ./simulator 
     depends_on:
-      - jaeger-tracing
-      - zipkin-collector
       - back-end
 
