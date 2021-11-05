@@ -1,82 +1,81 @@
 version: "3.9" 
+
 services:
 
+  # Jaeger
   jaeger:
     image: jaegertracing/all-in-one:1.9
     ports:
-      # - "5775:5775/udp"
-      # - "5778:5778"
-      # - "6831:6831/udp"
-      # - "6832:6832/udp"
-      # - "9411:9411"
-      # - "14268:14268"
       - "16686:16686"
 
+  # Zipkin
   zipkin:
     image: openzipkin/zipkin-slim:latest
     ports:
       - "9411:9411"
 
-  # prometheus:
-  #   image: prom/prometheus:v2.31.0
-  #   volumes:
-  #     - ./prometheus.yaml:/etc/prometheus/prometheus.yml
-  #   ports:
-  #     - "9090:9090"            
+  # Prometheus    
+  prometheus:
+    image: prom/prometheus:v2.31.0
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  # Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib-dev:latest
+    command: ["--config=/etc/otel-collector-config.yaml", ""]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "1888:1888"   # pprof extension
+      - "8888:8888"   # Prometheus metrics exposed by the collector
+      - "8889:8889"   # Prometheus exporter metrics
+      - "13133:13133" # health_check extension
+      - "4317"        # OTLP gRPC receiver
+      - "55670:55679" # zpages extension
+    depends_on:
+      - jaeger
+      - zipkin
+      - prometheus
 
   back-end:
-    build: 
-      dockerfile: ./Dockerfile
-      context: ./back-end 
+    build: ./back-end 
     ports:
       - "8080:80"
     depends_on:
-      - jaeger
-      - zipkin
+      - otel-collector
 
   payment-gateway:
-    build: 
-      dockerfile: ./Dockerfile
-      context: ./payment-gateway 
+    build: ./payment-gateway 
     depends_on:
-      - jaeger
-      - zipkin
+      - otel-collector
 
   paypal:
-    build: 
-      dockerfile: ./Dockerfile
-      context: ./paypal
+    build: ./paypal
     depends_on:
-      - jaeger
-      - zipkin
+      - otel-collector
 
   credit:
-    build: 
-      dockerfile: ./Dockerfile
-      context: ./credit
+    build: ./credit
     depends_on:
-      - jaeger
-      - zipkin
+      - otel-collector
 
   shipping-gateway:
-    build: 
-      dockerfile: ./Dockerfile
-      context: ./shipping-gateway 
+    build: ./shipping-gateway 
     depends_on:
-      - jaeger
-      - zipkin
+      - otel-collector
 
   toll:
     build: ./toll
     depends_on:
-      - jaeger
-      - zipkin
+      - otel-collector
 
   fedex:
     build: ./fedex
     depends_on:
-      - jaeger
-      - zipkin
+      - otel-collector
 
   dhl:
     build: ./dhl
@@ -85,9 +84,7 @@ services:
       - zipkin
 
   simulator:
-    build: 
-      dockerfile: ./Dockerfile
-      context: ./simulator 
+    build: ./simulator 
     depends_on:
       - back-end
 

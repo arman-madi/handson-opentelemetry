@@ -16,16 +16,22 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-
-	// "go.opentelemetry.io/otel/baggage"
-	"go.opentelemetry.io/otel/exporters/jaeger"
-	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
-	"go.opentelemetry.io/otel/exporters/zipkin"
+	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/global"
 	"go.opentelemetry.io/otel/propagation"
+	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
+	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
+	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc"
 )
 
 type Order struct {
@@ -42,74 +48,118 @@ var logger = log.New(os.Stderr, "[back-end] ", log.Ldate|log.Ltime|log.Llongfile
 // NOTE: You only need a tracer if you are creating your own spans
 var tracer trace.Tracer
 
-// initTracer creates a new trace provider instance and registers it as global trace provider.
-func initTracer() /*(*sdktrace.TracerProvider, error)*/ func() {
+// Initializes an OTLP exporter, and configures the corresponding trace and
+// metric providers.
+func initProvider() func() {
+	ctx := context.Background()
 
-	// ** STDOUT Exporter
-	stdoutExporter, err := stdouttrace.New( /*stdouttrace.WithPrettyPrint()*/ )
-	if err != nil {
-		log.Fatal("failed to initialize stdouttrace exporter: ", err)
-	}
-
-	// ** Jaeger Exporter
-	jaegerUrl := "http://jaeger:14268/api/traces"
-	jaegerExporter, err := jaeger.New(
-		jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(jaegerUrl)),
+	otelAgentAddr := "otel-collector:4317"
+	metricClient := otlpmetricgrpc.NewClient(
+		otlpmetricgrpc.WithInsecure(),
+		otlpmetricgrpc.WithEndpoint(otelAgentAddr))
+	metricExp, err := otlpmetric.New(ctx, metricClient)
+	handleErr(err, "Failed to create the collector metric exporter")
+	pusher := controller.New(
+		processor.NewFactory(
+			simple.NewWithExactDistribution(),
+			metricExp,
+		),
+		controller.WithExporter(metricExp),
+		controller.WithCollectPeriod(2*time.Second),
 	)
-	if err != nil {
-		log.Fatal("failed to initialize jaeger exporter: ", err)
-	}
+	global.SetMeterProvider(pusher)
+	err = pusher.Start(ctx)
+	handleErr(err, "Failed to start metric pusher")
 
-	// ** Zipkin Exporter
-	zipkinUrl := "http://zipkin:9411/api/v2/spans"
-	zipkinExporter, err := zipkin.New(
-		zipkinUrl,
-		// zipkin.WithLogger(logger),
+	traceClient := otlptracegrpc.NewClient(
+		otlptracegrpc.WithInsecure(),
+		otlptracegrpc.WithEndpoint(otelAgentAddr),
+		otlptracegrpc.WithDialOption(grpc.WithBlock()))
+	
+	traceExp, err := otlptrace.New(ctx, traceClient)
+	handleErr(err, "Failed to create the collector trace exporter")
+	res, err := resource.New(ctx,
+		resource.WithFromEnv(),
+		resource.WithProcess(),
+		resource.WithTelemetrySDK(),
+		resource.WithHost(),
+		resource.WithAttributes(
+			// the service name used to display traces in backends
+			semconv.ServiceNameKey.String("backend"),
+		),
 	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// ** Trace Provider
-	// For demoing purposes, always sample. In a production application, you should
-	// configure the sampler to a trace.ParentBased(trace.TraceIDRatioBased) set at the desired
-	// ratio.
-	tp := sdktrace.NewTracerProvider(
+	handleErr(err, "failed to create resource")
+	bsp := sdktrace.NewBatchSpanProcessor(traceExp)
+	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-		sdktrace.WithBatcher(zipkinExporter, sdktrace.WithMaxExportBatchSize(1)),
-		sdktrace.WithBatcher(jaegerExporter, sdktrace.WithMaxExportBatchSize(1)),
-		sdktrace.WithBatcher(stdoutExporter, sdktrace.WithMaxExportBatchSize(1)),
-		sdktrace.WithResource(resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceNameKey.String("back-end"),
-			attribute.String("environment", "demo"),
-			attribute.Int64("ID", 1),
-		)),
+		sdktrace.WithResource(res),
+		sdktrace.WithSpanProcessor(bsp),
 	)
 
+	// set global propagator to tracecontext (the default is no-op).
 	otel.SetTextMapPropagator(propagation.TraceContext{})
-
-	// Register our TracerProvider as the global so any imported
-	// instrumentation in the future will default to using it.
-	otel.SetTracerProvider(tp)
-
-	// Name the tracer after the package, or the service if you are in main
-	tracer = otel.Tracer("handson-opentelemetry/back-end")
+	otel.SetTracerProvider(tracerProvider)
 
 	return func() {
-		_ = tp.Shutdown(context.Background())
+		cxt, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		if err := traceExp.Shutdown(cxt); err != nil {
+			otel.Handle(err)
+		}
+		// pushes any last exports to the receiver
+		if err := pusher.Stop(cxt); err != nil {
+			otel.Handle(err)
+		}
+	}
+}
+
+func handleErr(err error, message string) {
+	if err != nil {
+		log.Fatalf("%s: %v", message, err)
 	}
 }
 
 func main() {
 	logger.Println("Hello, this is back-end service which is first service to handle the user requests in order to demonestrate how OpenTelemetry works!")
 
-	shutdown := initTracer()
+	shutdown := initProvider()
 	defer shutdown()
+	
+	tracer = otel.Tracer("backend-tracer")
+	meter := global.Meter("backend-meter")
+
+	method, _ := baggage.NewMember("method", "repl")
+	client, _ := baggage.NewMember("client", "cli")
+	bag, _ := baggage.New(method, client)
+
+	// labels represent additional key-value descriptors that can be bound to a
+	// metric observer or recorder.
+	// TODO: Use baggage when supported to extract labels from baggage.
+	commonLabels := []attribute.KeyValue{
+		attribute.String("app", "backend"),
+	}
+
+	// Recorder metric example
+	requestLatency := metric.Must(meter).
+		NewFloat64Histogram(
+			"backend/request_latency",
+			metric.WithDescription("The latency of requests processed"),
+		)
+
+	// TODO: Use a view to just count number of measurements for requestLatency when available.
+	requestCount := metric.Must(meter).
+		NewInt64Counter(
+			"backend/request_counts",
+			metric.WithDescription("The number of requests processed"),
+		)
 
 	checkoutHandler := func(w http.ResponseWriter, req *http.Request) {
+		logger.Print("New checkout request received.")
+
+		startTime := time.Now()
 
 		ctx := req.Context()
+		ctx = baggage.ContextWithBaggage(ctx, bag)
 
 		// otelhttp already started a new span for handle function so you may need just get the span and add some events as needed
 		span := trace.SpanFromContext(ctx)
@@ -139,11 +189,21 @@ func main() {
 		// ***********************
 
 		_, _ = io.WriteString(w, fmt.Sprintf("{\"trace-id\": \"%v\"}\n", traceId))
+
+		latencyMs := float64(time.Since(startTime)) / 1e6
+
+		meter.RecordBatch(
+			ctx,
+			commonLabels,
+			requestLatency.Measurement(latencyMs),
+			requestCount.Measurement(1),
+		)
+
 	}
 
 	otelHandler := otelhttp.NewHandler(http.HandlerFunc(checkoutHandler), "handle-checkout")
-
 	http.Handle("/checkout", otelHandler)
+
 	logger.Printf("Listening on port 80\n")
 	http.ListenAndServe(":80", nil)
 }
@@ -257,3 +317,4 @@ func calcAmount(ctx context.Context, basket []string) int {
 
 	return total
 }
+
